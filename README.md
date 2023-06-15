@@ -1,1 +1,1 @@
-# SPiOZ-ml-projekat
+spioz-ml-projekat
