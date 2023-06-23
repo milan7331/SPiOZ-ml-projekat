@@ -96,11 +96,11 @@ indexedData = indexer.fit(data).transform(data)
 
 # odabir atributa i pretvaranje u vektor tf??
 assembler = VectorAssembler(inputCols=columns_scaled, outputCol="features")
-assembledData = assembler.transform(indexedData)
+assembled_data = assembler.transform(indexedData)
 
 
 # Split the data into training and testing sets
-(trainingData, testData) = assembledData.randomSplit([0.8, 0.2], seed=99999999)
+(training_data, test_data) = assembled_data.randomSplit([0.8, 0.2], seed=99999999)
 
 # Kreiranje ML modela
 dt = DecisionTreeClassifier()
@@ -108,53 +108,70 @@ rf = RandomForestClassifier()
 nb = NaiveBayes()
 
 # Treniranje modela
-dtModel = dt.fit(trainingData)
-rfModel = rf.fit(trainingData)
-nbModel = nb.fit(trainingData)
+dt_model = dt.fit(training_data)
+rf_model = rf.fit(training_data)
+nb_model = nb.fit(training_data)
 
 # Testiranje modela
-dtPredictions = dtModel.transform(testData)
-rfPredictions = rfModel.transform(testData)
-nbPredictions = nbModel.transform(testData)
+dt_predictions = dt_model.transform(test_data)
+rf_predictions = rf_model.transform(test_data)
+nb_predictions = nb_model.transform(test_data)
 
-#### OVAJ evaluator đavo može da izvuče F1 i ostalo pored accuracy vidi chat gpt sranje od pre
+# Evaluation metrics za Decision Tree
+dt_evaluator_accuracy = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="accuracy")
+dt_evaluator_precision = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="precisionByLabel")
+dt_evaluator_recall = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="recallByLabel")
+dt_evaluator_f1 = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="f1")
 
-# Evaluation metrics
-dtEvaluator = MulticlassClassificationEvaluator(predictionCol="prediction", labelCol="label", metricName="accuracy")
-rfEvaluator = MulticlassClassificationEvaluator(predictionCol="prediction", labelCol="label", metricName="accuracy")
-nbEvaluator = MulticlassClassificationEvaluator(predictionCol="prediction", labelCol="label", metricName="accuracy")
+# Evaluation metrics za Random Forest
+rf_evaluator_accuracy = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="accuracy")
+rf_evaluator_precision = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="precisionByLabel")
+rf_evaluator_recall = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="recallByLabel")
+rf_evaluator_f1 = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="f1")
 
-# Accuracy for Decision Tree
-dtAccuracy = dtEvaluator.evaluate(dtPredictions)
-print("Decision Tree Accuracy:", dtAccuracy)
+# Evaluation metrics za Naive Bayes
+nb_evaluator_accuracy = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="accuracy")
+nb_evaluator_precision = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="precisionByLabel")
+nb_evaluator_recall = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="recallByLabel")
+nb_evaluator_f1 = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="f1")
 
-# Accuracy for Random Forest
-rfAccuracy = rfEvaluator.evaluate(rfPredictions)
-print("Random Forest Accuracy:", rfAccuracy)
+# Accuracy, precision, recall i f1 za Decision Tree
+dt_accuracy = dt_evaluator_accuracy.evaluate(dt_predictions)
+dt_precision = dt_evaluator_precision.evaluate(dt_predictions)
+dt_recall = dt_evaluator_recall.evaluate(dt_predictions)
+dt_f1 = dt_evaluator_f1.evaluate(dt_predictions)
+print(f"Decision Tree Stats:\n Accuracy: {dt_accuracy}\n Precision: {dt_precision}\n Recall: {dt_recall}\n F1: {dt_f1}\n\n")
 
-# Accuracy for Naive Bayes
-nbAccuracy = nbEvaluator.evaluate(nbPredictions)
-print("Naive Bayes Accuracy:", nbAccuracy)
+# Accuracy, precision, recall i f1 za Random Forest
+rf_accuracy = rf_evaluator_accuracy.evaluate(rf_predictions)
+rf_precision = rf_evaluator_precision.evaluate(rf_predictions)
+rf_recall = rf_evaluator_recall.evaluate(rf_predictions)
+rf_f1 = rf_evaluator_f1.evaluate(rf_predictions)
+print(f"Random Forest Stats:\n Accuracy: {rf_accuracy}\n Precision: {rf_precision}\n Recall: {rf_recall}\n F1: {rf_f1}\n\n")
 
-# Matrica konfuzije za - Decision Tree
-dtPredictionAndLabels = dtPredictions.select("prediction", "label").rdd
-dtMetrics = MulticlassMetrics(dtPredictionAndLabels)
-dtConfusionMatrix = dtMetrics.confusionMatrix()
-print("Decision Tree Confusion Matrix:")
-print(dtConfusionMatrix)
+# Accuracy, precision, recall i f1 za Naive Bayes
+nb_accuracy = nb_evaluator_accuracy.evaluate(nb_predictions)
+nb_precision = nb_evaluator_precision.evaluate(nb_predictions)
+nb_recall = nb_evaluator_recall.evaluate(nb_predictions)
+nb_f1 = nb_evaluator_f1.evaluate(nb_predictions)
+print(f"Naive Bayes Stats:\n Accuracy: {nb_accuracy}\n Precision: {nb_precision}\n Recall: {nb_recall}\n F1: {nb_f1}\n\n")
 
-# Matrica konfuzije za - Random Forest
-rfPredictionAndLabels = rfPredictions.select("prediction", "label").rdd
-rfMetrics = MulticlassMetrics(rfPredictionAndLabels)
-rfConfusionMatrix = rfMetrics.confusionMatrix()
-print("Random Forest Confusion Matrix:")
-print(rfConfusionMatrix)
+# Matrica konfuzije za Decision Tree
+dt_prediction_and_labels = dt_predictions.select("prediction", "label").rdd
+dt_metrics = MulticlassMetrics(dt_prediction_and_labels)
+dt_confusion_matrix = dt_metrics.confusionMatrix()
+print(f"Decision Tree Confusion Matrix:\n {dt_confusion_matrix}")
 
-# Matrica konfuzije za - Naive Bayes
-nbPredictionAndLabels = nbPredictions.select("prediction", "label").rdd
-nbMetrics = MulticlassMetrics(nbPredictionAndLabels)
-nbConfusionMatrix = nbMetrics.confusionMatrix()
-print("Naive Bayes Confusion Matrix:")
-print(nbConfusionMatrix)
+# Matrica konfuzije za Random Forest
+rf_prediction_and_labels = rf_predictions.select("prediction", "label").rdd
+rf_metrics = MulticlassMetrics(rf_prediction_and_labels)
+rf_confusion_matrix = rf_metrics.confusionMatrix()
+print(f"Random Forest Confusion Matrix:\n {rf_confusion_matrix}")
+
+# Matrica konfuzije za Naive Bayes
+nb_prediction_and_labels = nb_predictions.select("prediction", "label").rdd
+nb_metrics = MulticlassMetrics(nb_prediction_and_labels)
+nb_confusion_matrix = nb_metrics.confusionMatrix()
+print(f"Naive Bayes Confusion Matrix:\n {nb_confusion_matrix}")
 
 spark.stop()
