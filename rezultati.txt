@@ -1,0 +1,3 @@
+Logistic Regression Accuracy: 0.8377483443708609
+Decision Tree Accuracy: 0.8211920529801324
+Random Forest Accuracy: 0.8377483443708609
