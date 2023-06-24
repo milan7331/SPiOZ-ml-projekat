@@ -1,0 +1,1 @@
+spark-submit --master local[*] --py-files PROGRAM_NAME.py --conf spark.pyspark.python="C:\Users\Milan\AppData\Local\Programs\Python\Python39\python.exe" PROGRAM_NAME.py

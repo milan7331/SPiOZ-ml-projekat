@@ -1,113 +1,110 @@
+from pyspark.ml import Pipeline
 from pyspark.ml.classification import NaiveBayes, DecisionTreeClassifier, RandomForestClassifier
 from pyspark.ml.evaluation import MulticlassClassificationEvaluator
-from pyspark.ml.feature import StringIndexer, VectorAssembler, StandardScaler, MinMaxScaler
-from pyspark.ml import Pipeline
-from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, sum, stddev_samp, expr, udf
-
-from pyspark.sql.types import DoubleType
-
 from pyspark.mllib.evaluation import MulticlassMetrics
+from pyspark.ml.feature import StringIndexer, VectorAssembler, StandardScaler, MinMaxScaler
+from pyspark.sql import SparkSession
+from pyspark.sql.types import DoubleType
+from pyspark.sql.functions import col, sum, stddev_samp, expr, udf, month
 
-# 1 - Definicija kolona odabranog dataset-a
-columns = ["precipitation", "temp_max", "temp_min", "wind"]
-columns_scaled = ["precipitation_S", "temp_max_S", "temp_min_S", "wind_S"] # cemu ovo koji k
+# Dodaj logovanje u konzolu
+# Eventualno ispisivanje u output fajl radi preglednosti??
 
-# 2 - Definicija klasa
-labels = ["drizzle", "rain", "sun", "snow", "fog"]
-
-# 3 - Kreiranje spark sesije
-spark = SparkSession.builder.appName("Weather Prediction").getOrCreate()
-spark.sparkContext.setLogLevel("WARN")
-
-# 4 - Putanja do dataseta u csv formatu
+# Putanja do dataseta u csv formatu
 path = "./weather.csv"
 
-# 5- Učitavanje podataka
+# Kreiranje spark sesije
+spark = SparkSession.builder.appName("Weather prediction").getOrCreate()
+spark.sparkContext.setLogLevel("OFF")
+
+# Učitavanje podataka
 data = spark.read.format("csv").option("header", "true").option("inferSchema", "true").load(path)
 
-########################  2) Preprocesiranje (koristeći Spark)
-# Drop unnecessary columns
-data = data.drop("date")
+# Ekstraktujemo mesec iz datuma jer dani i godine nisu od značaja
+data = data.withColumnRenamed("date", "month")
+data = data.withColumn("month", month("month"))
 
-print("\nData after dropping unnecessary columns:")
-data.show()
+# Duplikati u ovom datasetu ne postoje ali za svaki slucaj otklanjamo
+data = data.dropDuplicates()
 
-# Count and remove duplicate rows
-duplicate_count = data.dropDuplicates().count() - data.count()
-print(f"\nNumber of duplicate rows: {duplicate_count}\n")
-
-# Check for null values in each column
-print("\nNumber of null values in each column:")
+# Izveštaj o null vrednostima u datasetu
+print("\nBroj null vrednosti po kolonama, iste ce biti odbacene\n")
 data.select([sum(col(column).isNull().cast("int")).alias(column) for column in data.columns]).show()
 
-# Check class balance
-print("\nClass distribution:")
+# Otklanjanje redova sa null vrednostima jer nisu pogodni za obradu
+data = data.dropna()
+
+# Izveštaj o distribuciji klasa u datasetu / balansiranosti podataka
+print("\nDistribucija klasa: \n")
 data.groupBy("weather").count().show()
 
-# eliminacija outliers za kolone??
-statistics = data.select([stddev_samp(column).alias(column) for column in data.columns]).first()
+# Eliminacija izuzetaka / odstupanja (outliers) po kolonama
+for i in data.columns[:-1]:
+    # Računamo srednju vrednost kolone i standardnu devijaciju
+    mean_value = data.agg({i: "mean"}).collect()[0][0]
+    std_dev = data.agg({i: "stddev"}).collect()[0][0]
 
-# Define the lower and upper bounds for outliers (moze i 3) (sta moze bre 3 tf?)
-lower_bounds = [(statistics[column] - 2 * statistics[column]) for column in columns]
-upper_bounds = [(statistics[column] + 2 * statistics[column]) for column in columns]
+    # Biramo gornju i donju granicu koje će biti korišćene prilikom filtriranja
+    lower_bound = mean_value - 3 * std_dev
+    upper_bound = mean_value + 3 * std_dev
 
-#filtriranje redova / slogova / cega god kojima se kriterijumi ne poklapaju??
-data.filter(expr(" AND ".join([f"({column} >= {lower_bound} AND {column} <= {upper_bound})" for column, lower_bound, upper_bound in zip(columns, lower_bounds, upper_bounds)]))).show()
-
-
-# normalizacija meme
-unlist = udf(lambda x: round(float(list(x)[0]), 15), DoubleType())
-
-for i in columns:
-    assembler = VectorAssembler(inputCols=[i],outputCol=i+"_Vect") # VectorAssembler Transformation - Converting column to vector type
-    scaler = MinMaxScaler(inputCol=i+"_Vect", outputCol=i+"_S") # MinMaxScaler Transformation
-    pipeline = Pipeline(stages=[assembler, scaler])  # Pipeline of VectorAssembler and MinMaxScaler
-    data = pipeline.fit(data).transform(data).withColumn(i+"_S", unlist(i+"_S")).drop(i+"_Vect")  # Fitting pipeline on dataframe
-
-# Drop the first 4 columns
-drop_columns = data.columns[:4]
-data = data.drop(*drop_columns)
-data = data.select(*([col(c) for c in data.columns[1:]] + [col(data.columns[0])])) # Move the 11th column to the end
-data.show()
-
-# # # # chat gpt koristio drugi neki scaller koja je razlika samo bog zna??
-# # # # Perform feature scaling
-# # # assembler = VectorAssembler(inputCols=columns[1:], outputCol="features")
-# # # scaler = StandardScaler(inputCol="features", outputCol="scaledFeatures")
-# # # pipeline = Pipeline(stages=[assembler, scaler])
-# # # data = pipeline.fit(data).transform(data)
-
-# # # # Drop the original features column and keep the scaled features
-# # # data = data.drop("features").withColumnRenamed("scaledFeatures", "features")
-
-# # # print("\nData after feature scaling:")
-# # # data.show()
+    # Filtriramo kolone sa vrednostima koje odstupaju
+    data = data.filter(col(i).between(lowerBound=lower_bound, upperBound=upper_bound))
 
 
-# Optional: Select specific attributes for training
-# data = data.select("features", "label")
+# Izveštaj o distribuciji klasa u datasetu nekon filtriranja
+# Note: Ovakav vid filtriranja najviše čisti "rain" klasu vrv nije najbolja ideja??
+print("\nDistribucija klasa nakon filtriranja\n")
+data.groupBy("weather").count().show()
 
-#############################################################################################################
+# User defined funkcija koja konvertuje vector tip nazad u float sa 10 decimala
+# Treba nam na kraju skaliranja kako bi povratili prvobitni format
+udf_float10 = udf(lambda x: round(float(x[0]), 10), DoubleType())
 
-# # Convert string labels to numeric format
+# Skaliranje po kolonama
+for i in data.columns[:-1]:
+    # Transformacija kolone u vektor
+    assembler = VectorAssembler(inputCols=[i], outputCol=i+"_v")
+
+    # Skaliranje vrednosti iz kolone (vektora) na vrednosti od 0.0 do 1.0
+    # Moguće je koristiti i StandardScaler
+    scaler = MinMaxScaler(inputCol=i+"_v", outputCol=i+"_s")
+
+    # Pipeline koji vrši sekvencu transformacija nad podacima
+    pipeline = Pipeline(stages=[assembler, scaler])
+
+    # Konačno vršimo skaliranje nad samim podacima
+    data = pipeline.fit(data).transform(data)
+
+    # Vršimo konverziju podataka nazad na float vrednosti
+    data = data.withColumn(i+"_s", udf_float10(i+"_s"))
+
+    # Odbacujemo originalne i vector vrednosti
+    data = data.drop(i+"_v")
+    data = data.drop(i)
+
+
+# Nakon skaliranja premeštamo kolonu klase na kraj gde je bila i do sada
+data = data.select(*(data.columns[1:] + data.columns[:1]))
+
+# Datasetu dodajemo label kolonu koja sadrži klasu kao numeričku vrednost
 indexer = StringIndexer(inputCol="weather", outputCol="label")
-indexedData = indexer.fit(data).transform(data)
+data = indexer.fit(data).transform(data)
 
-# odabir atributa i pretvaranje u vektor tf??
-assembler = VectorAssembler(inputCols=columns_scaled, outputCol="features")
-assembled_data = assembler.transform(indexedData)
+# Transformišemo kolone od značaja u vektor pod imenom features
+# Dakle bez kolona klase i label
+assembler = VectorAssembler(inputCols=data.columns[0:-2], outputCol="features")
+data = assembler.transform(data)
 
-
-# Split the data into training and testing sets
-(training_data, test_data) = assembled_data.randomSplit([0.8, 0.2], seed=99999999)
+# Delimo dataset na treining i test setove u odnosu 80:20
+(training_data, test_data) = data.randomSplit([0.8, 0.2], seed=1010)
 
 # Kreiranje ML modela
 dt = DecisionTreeClassifier()
 rf = RandomForestClassifier()
-nb = NaiveBayes()
+nb = NaiveBayes(smoothing=1.0, modelType="multinomial")
 
-# Treniranje modela
+# Treniranje ML modela
 dt_model = dt.fit(training_data)
 rf_model = rf.fit(training_data)
 nb_model = nb.fit(training_data)
@@ -173,5 +170,6 @@ nb_prediction_and_labels = nb_predictions.select("prediction", "label").rdd
 nb_metrics = MulticlassMetrics(nb_prediction_and_labels)
 nb_confusion_matrix = nb_metrics.confusionMatrix()
 print(f"Naive Bayes Confusion Matrix:\n {nb_confusion_matrix}")
+
 
 spark.stop()
