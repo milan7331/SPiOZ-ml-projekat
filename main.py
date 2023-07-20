@@ -2,13 +2,10 @@ from pyspark.ml import Pipeline
 from pyspark.ml.classification import NaiveBayes, DecisionTreeClassifier, RandomForestClassifier
 from pyspark.ml.evaluation import MulticlassClassificationEvaluator
 from pyspark.mllib.evaluation import MulticlassMetrics
-from pyspark.ml.feature import StringIndexer, VectorAssembler, StandardScaler, MinMaxScaler
+from pyspark.ml.feature import StringIndexer, VectorAssembler, MinMaxScaler
 from pyspark.sql import SparkSession
 from pyspark.sql.types import DoubleType
-from pyspark.sql.functions import col, sum, stddev_samp, expr, udf, month
-
-# Dodaj logovanje u konzolu
-# Eventualno ispisivanje u output fajl radi preglednosti??
+from pyspark.sql.functions import col, sum, udf, month
 
 # Putanja do dataseta u csv formatu
 path = "./weather.csv"
@@ -19,6 +16,9 @@ spark.sparkContext.setLogLevel("OFF")
 
 # Učitavanje podataka
 data = spark.read.format("csv").option("header", "true").option("inferSchema", "true").load(path)
+
+print("\nInicijalni podaci ucitani iz csv fajla\n")
+data.show(40)
 
 # Ekstraktujemo mesec iz datuma jer dani i godine nisu od značaja
 data = data.withColumnRenamed("date", "month")
@@ -33,6 +33,9 @@ data.select([sum(col(column).isNull().cast("int")).alias(column) for column in d
 
 # Otklanjanje redova sa null vrednostima jer nisu pogodni za obradu
 data = data.dropna()
+
+print("\n Podaci nakon ekstrakcije datuma, odbacivanja duplikata i null vrednosti\n")
+data.show(40)
 
 # Izveštaj o distribuciji klasa u datasetu / balansiranosti podataka
 print("\nDistribucija klasa: \n")
@@ -54,7 +57,7 @@ for i in data.columns[:-1]:
 
 # Izveštaj o distribuciji klasa u datasetu nekon filtriranja
 # Note: Ovakav vid filtriranja najviše čisti "rain" klasu vrv nije najbolja ideja??
-print("\nDistribucija klasa nakon filtriranja\n")
+print("\nDistribucija klasa nakon filtriranja outliers-a\n")
 data.groupBy("weather").count().show()
 
 # User defined funkcija koja konvertuje vector tip nazad u float sa 10 decimala
@@ -68,6 +71,7 @@ for i in data.columns[:-1]:
 
     # Skaliranje vrednosti iz kolone (vektora) na vrednosti od 0.0 do 1.0
     # Moguće je koristiti i StandardScaler
+    # scaler = StandardScaler(inputCol=i+"_v", outputCol=i+"_s")
     scaler = MinMaxScaler(inputCol=i+"_v", outputCol=i+"_s")
 
     # Pipeline koji vrši sekvencu transformacija nad podacima
@@ -87,6 +91,9 @@ for i in data.columns[:-1]:
 # Nakon skaliranja premeštamo kolonu klase na kraj gde je bila i do sada
 data = data.select(*(data.columns[1:] + data.columns[:1]))
 
+print("\nPodaci nakon skaliranja na vrednosti od 0-1")
+data.show(40)
+
 # Datasetu dodajemo label kolonu koja sadrži klasu kao numeričku vrednost
 indexer = StringIndexer(inputCol="weather", outputCol="label")
 data = indexer.fit(data).transform(data)
@@ -95,6 +102,9 @@ data = indexer.fit(data).transform(data)
 # Dakle bez kolona klase i label
 assembler = VectorAssembler(inputCols=data.columns[0:-2], outputCol="features")
 data = assembler.transform(data)
+
+print("\nPodaci nakon indeksiranja klase i pretvaranja kolona od znacaja u vektor features\n")
+data.show(40)
 
 # Delimo dataset na treining i test setove u odnosu 80:20
 (training_data, test_data) = data.randomSplit([0.8, 0.2], seed=1010)
@@ -116,42 +126,42 @@ nb_predictions = nb_model.transform(test_data)
 
 # Evaluation metrics za Decision Tree
 dt_evaluator_accuracy = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="accuracy")
-dt_evaluator_precision = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="precisionByLabel")
-dt_evaluator_recall = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="recallByLabel")
+# dt_evaluator_precision = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="precisionByLabel")
+# dt_evaluator_recall = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="recallByLabel")
 dt_evaluator_f1 = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="f1")
 
 # Evaluation metrics za Random Forest
 rf_evaluator_accuracy = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="accuracy")
-rf_evaluator_precision = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="precisionByLabel")
-rf_evaluator_recall = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="recallByLabel")
+# rf_evaluator_precision = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="precisionByLabel")
+# rf_evaluator_recall = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="recallByLabel")
 rf_evaluator_f1 = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="f1")
 
 # Evaluation metrics za Naive Bayes
 nb_evaluator_accuracy = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="accuracy")
-nb_evaluator_precision = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="precisionByLabel")
-nb_evaluator_recall = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="recallByLabel")
+# nb_evaluator_precision = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="precisionByLabel")
+# nb_evaluator_recall = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="recallByLabel")
 nb_evaluator_f1 = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="f1")
 
 # Accuracy, precision, recall i f1 za Decision Tree
 dt_accuracy = dt_evaluator_accuracy.evaluate(dt_predictions)
-dt_precision = dt_evaluator_precision.evaluate(dt_predictions)
-dt_recall = dt_evaluator_recall.evaluate(dt_predictions)
+# dt_precision = dt_evaluator_precision.evaluate(dt_predictions)
+# dt_recall = dt_evaluator_recall.evaluate(dt_predictions)
 dt_f1 = dt_evaluator_f1.evaluate(dt_predictions)
-print(f"Decision Tree Stats:\n Accuracy: {dt_accuracy}\n Precision: {dt_precision}\n Recall: {dt_recall}\n F1: {dt_f1}\n\n")
+print(f"Decision Tree Stats:\n Accuracy: {dt_accuracy}\n F1: {dt_f1}\n\n")
 
 # Accuracy, precision, recall i f1 za Random Forest
 rf_accuracy = rf_evaluator_accuracy.evaluate(rf_predictions)
-rf_precision = rf_evaluator_precision.evaluate(rf_predictions)
-rf_recall = rf_evaluator_recall.evaluate(rf_predictions)
+# rf_precision = rf_evaluator_precision.evaluate(rf_predictions)
+# rf_recall = rf_evaluator_recall.evaluate(rf_predictions)
 rf_f1 = rf_evaluator_f1.evaluate(rf_predictions)
-print(f"Random Forest Stats:\n Accuracy: {rf_accuracy}\n Precision: {rf_precision}\n Recall: {rf_recall}\n F1: {rf_f1}\n\n")
+print(f"Random Forest Stats:\n Accuracy: {rf_accuracy}\n F1: {rf_f1}\n\n")
 
 # Accuracy, precision, recall i f1 za Naive Bayes
 nb_accuracy = nb_evaluator_accuracy.evaluate(nb_predictions)
-nb_precision = nb_evaluator_precision.evaluate(nb_predictions)
-nb_recall = nb_evaluator_recall.evaluate(nb_predictions)
+# nb_precision = nb_evaluator_precision.evaluate(nb_predictions)
+# nb_recall = nb_evaluator_recall.evaluate(nb_predictions)
 nb_f1 = nb_evaluator_f1.evaluate(nb_predictions)
-print(f"Naive Bayes Stats:\n Accuracy: {nb_accuracy}\n Precision: {nb_precision}\n Recall: {nb_recall}\n F1: {nb_f1}\n\n")
+print(f"Naive Bayes Stats:\n Accuracy: {nb_accuracy}\n F1: {nb_f1}\n\n")
 
 # Matrica konfuzije za Decision Tree
 dt_prediction_and_labels = dt_predictions.select("prediction", "label").rdd
